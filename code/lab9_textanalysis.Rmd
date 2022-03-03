@@ -1,0 +1,134 @@
+---
+title: 'Lab 9: Text Analysis'
+author: "Shuying Yu"
+date: "3/3/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE, warning = FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+#Attach packages
+library(tidyverse)
+```
+
+Look at `stringr` package which is already installed in R:
+
+- querying strings
+
+- replace strings and manipulate them
+
+## Create vector of characters
+
+```{r}
+#Make vector
+vec <- c("     A Unicorn     Fish",
+         "  add    cornmeal",
+         "    French FRIES",
+         " acorn squash ")
+
+
+#Then detect a string pattern using `stringr` package: 
+
+#Give vector of character objects/column in df, check if detects this string
+str_detect(vec, pattern = "corn") #FALSE in third string
+str_detect(vec, pattern = "fish") #FALSE in all strings, looks for fish all lowercase
+str_extract(vec, pattern = "[a-z]") #pull it out of vector if it exists
+#Square brackets is start of regex search for pattern between a-z lowercase
+#Fins match for first letter in each string that matches the pattern
+
+
+str_extract(vec, pattern = "[a-z]+") #Adding plus means include rest of elements that match up to that point
+#* = 1+times, other symbols
+
+str_extract_all(vec, pattern = "[a-zA-Z]+") #Give all instances of this pattern; everything a-z, and A-Z
+
+```
+
+
+## Filter for string pattern
+
+```{r}
+walk_subset <- starwars %>% 
+  
+  #Filter using string detect
+  #Lookin col/vector "name", for pattern "walk"
+  filter(str_detect(name, pattern = "walk"))
+```
+
+
+## Replace strings
+
+```{r}
+#If detect corn string replace with "C000L", only first instance it finds
+str_replace(vec, pattern = "corn", replacement = "C000L")
+
+
+#Replace everything it shows up
+str_replace_all(vec, pattern = "a", replacement = "ZZZZZ")
+```
+
+
+```{r}
+sw_tornado <- starwars %>% 
+  
+  #Replace Sky with TORNADO in the name column
+  mutate(name = str_replace(name, pattern = "Sky",
+                            replacement = "TORNADO"))
+```
+
+
+## Remove white spaces
+
+
+```{r}
+#Removes leading white space
+str_trim(vec)
+
+#Squish
+#Takes off leading, trailing, and extra white space
+str_squish(vec)
+```
+
+## Change case
+
+Before working with string data, change case to lower for all
+
+```{r}
+str_to_lower(vec) #or tolower(vec)
+str_to_upper(vec)
+str_to_title(vec) #capitalize according to title in books?
+```
+
+## Combine all functions together
+
+```{r}
+sw_combo <- starwars %>% 
+  
+  #Make names all lowercase
+  mutate(name = str_to_lower(name)) %>% 
+  
+  #Do we find word "darth"
+  filter(str_detect(name, pattern = "darth")) %>% 
+  
+  #Replace "darth" with "Llama"
+  mutate(name = str_replace(name, pattern = "darth", replacement = "Llama"))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
