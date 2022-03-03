@@ -1,0 +1,220 @@
+---
+title: 'Lab 9: Forecasting'
+author: "Shuying Yu"
+date: "3/3/2022"
+output: html_document
+---
+
+```{r setup, include=TRUE, warning = FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+#Attach packages
+library(tidyverse)
+library(here)
+library(broom)
+
+#Time series packages
+library(tsibble)
+library(feasts)
+library(fable)
+```
+
+
+Data of residential consumption of energy in the United States in the 1973-2017. Units in BTU = British thermal unit (trillion per month)
+
+
+# Convert to times series
+
+```{r}
+#Read in data and convert to time series
+energy <- read_csv(here("data", "energy.csv"))
+```
+
+Month right now is just a character column
+
+```{r}
+#Change to energy_ts object
+energy_ts <- energy %>% 
+  
+  #Convert month to time series of year and month
+  mutate(date = tsibble::yearmonth(month)) %>% 
+  
+  #As time series dataframe
+  as_tsibble(key = NULL, index = date)
+```
+
+Date column is a `mth` time series column
+
+
+
+# Exploratory plotting
+
+Look at plot of date by residential energy consumption
+
+```{r}
+#Look at raw data
+ggplot(data = energy_ts, aes(x = date,
+                             y = res_total)) +
+  
+  #Define line plot
+  geom_line() +
+  
+  #Change y-axis label
+  labs(y = "Residential energy consumption \n (Trillion BTU)")
+```
+
+We can see a trend (overall level going up by time), see seasonality (regular spikes). Big spikes are continuous throughout time series. Some tiny spikes then big spikes, but their magnitude increases with time (change in variability).
+
+
+## Seasonplot
+
+```{r}
+energy_ts %>% 
+  
+  #From feast package
+  gg_season(y = res_total) +
+  
+  #Change theme
+  theme_minimal() +
+  
+  #Change color scale
+  scale_colour_viridis_c() +
+  
+  #Change x-axis and y-axis labels
+  labs(x = "Month",
+       y = "Residential energy consumption (trillion BTU)",
+       color = "Year")
+
+```
+Stack year-by-year all the January's, all the February's, etc... Increased year shows shift upward in energy use. Hump in middle is interesting: something changed in summer months over the years (e.g., air conditioning during the summer leads to increased energy use).
+
+
+
+```{r}
+energy_ts %>% gg_subseries()
+```
+
+
+Plot separate plot for each month, with line showing mean of energy use for that month. For July, for example, we can see energy use go up over the years.
+
+
+## Decomposition
+
+Generate trend based on moving average window. See Rob Hyndman's section on [STL decomposition](https://otexts.com/fpp2/stl.html) to learn how it compares to classical decomposition we did last week: "STL is a versatile and robust method for decomposing time series. STL is an acronym for “Seasonal and Trend decomposition using Loess”, while Loess is a method for estimating nonlinear relationships." 
+
+Notice that it allows seasonality to vary over time (a major difference from classical decomposition, and important here since we do see changes in seasonality). 
+
+Want to let seasonality change over time in order to capture that signal.
+
+```{r}
+dcmp <- energy_ts %>% 
+  
+  #Lowess model is STL function
+  model(STL(res_total ~ season()))
+
+#Check components
+components(dcmp) %>% 
+  
+  #Pass to autoplot function
+  autoplot() + #becomes ggplot now so use + sign afterwards
+  
+  theme_minimal()
+```
+Grey bars on left are the range of residuals, same size scaled for all decomposition plots
+
+
+## Autocorrelation function
+
+```{r}
+energy_ts %>% 
+  
+  #Calculates autocorr fx baed on res_total
+  ACF(res_total, lag_max = 48) %>% 
+  
+  #Pass to autoplot
+  autoplot() #+
+  
+  #Expand x-axis? Specify in ACF how many months to calculate it
+  #scale_x_continuous(limits = c(0, 48))
+```
+
+
+# Forecasting by Holt-Winters exponential smoothing
+
+```{r}
+energy_fit <- energy_ts %>% 
+  
+  #Model built in to feasts
+  #ets for additive models, model function is ETS
+  #Tell what kind of seasonality we expect, N = non-seasonal, A = additive, M = multiplicative
+  #Use M because we see the variance in spikes over time
+  model(ets = ETS(res_total ~ season("M")))
+
+
+
+#Now a linear model we can use to predict future values
+
+energy_forecast <- energy_fit %>% 
+  #H = horizon
+  #create 10 year time span of what the res_total will be
+  forecast(h = "10 years")
+
+
+
+#Create autoplot of forecast/predicted res_total
+energy_forecast %>% autoplot()
+```
+
+If want to append to existing data
+
+
+```{r}
+energy_forecast %>% autoplot(energy_ts)
+```
+
+80 and 95 percent confident intervals
+
+
+### Residuals
+
+Want them to be centered around 0 and no visual patterns, meaning there is additional information in the data that we are not capturing in the model
+
+```{r}
+#Append the predicted values (and residuals) to original energy data
+
+#energy_fit based on existing data (fitted), allows us to get residual values
+energy_predicted <- broom::augment(energy_fit)
+
+
+#Plot predicted with observed data
+ggplot(data = energy_predicted) +
+  geom_line(aes(x = date, y = res_total)) +
+  geom_line(aes(x = date, y = .fitted), color = "red", alpha = 0.7)
+```
+
+It follows observed data pretty well, but the small spikes are a little smaller.
+
+We can check distribution of residuals
+
+```{r}
+ggplot(data = energy_predicted,
+       aes(x = .resid)) +
+  geom_histogram()
+```
+
+Centered around 0, so reasonably sound prediction of the model.
+
+There are also other forecasting methods (see Lab Key)
+
+
+
+
+
+
+
+
+
+
+
+
+
