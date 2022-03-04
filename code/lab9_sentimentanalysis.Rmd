@@ -1,0 +1,313 @@
+---
+title: 'Lab 9: Sentiment Analysis'
+author: "Shuying Yu"
+date: "3/3/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE, warning = FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+#Attach packages
+library(tidyverse)
+library(tidytext)
+library(textdata)
+library(pdftools)
+library(ggwordcloud)
+```
+
+
+# Get The Hobbit
+
+```{r, cache = TRUE}
+hobbit_text <- pdf_text(here::here('data', 'the-hobbit.pdf'))
+
+hobbit_p34 <- hobbit_text[34]
+```
+
+
+# Break down into pages and lines
+
+```{r}
+hobbit_lines <- data.frame(hobbit_text) %>% 
+  mutate(page = 1:n()) %>%
+  mutate(text_full = str_split(hobbit_text, pattern = '\\n')) %>% 
+  unnest(text_full) %>% 
+  
+  #Get rid of extra white space
+  mutate(text_full = str_trim(text_full)) 
+
+```
+
+
+# Do some tidying
+
+Chapter 1 starts on line 138, so drop everything before it
+
+```{r}
+hobbit_chapts <- hobbit_lines %>% 
+  
+  #Remove row
+  slice(-(1:137)) %>% 
+  
+  #Create chapter column
+  mutate(chapter = ifelse(str_detect(text_full, "Chapter"), text_full, NA)) %>% 
+  
+  #Fill the NAs with everything before it (chapter number)
+  fill(chapter, .direction = 'down') %>% 
+  
+  #Take chapter column, separate the chapter work and the number
+  separate(col = chapter, into = c("ch", "no"), sep = " ") %>% 
+  
+  #Change roman numeral as a factor and write as a latin number
+  mutate(chapter = as.numeric(as.roman(no)))
+```
+
+
+# Do some word counts by chapter
+
+Tokenize text, break down text into tokens of choosing
+
+We define token as individual words (others can sort by are sentences, *n*grams/bigrams, different ways of breaking them down)
+
+```{r}
+hobbit_words <- hobbit_chapts %>% 
+  
+  #Tokenize by words, drops punctuation
+  unnest_tokens(word, text_full, token = "words") %>% 
+  
+  #Remove hobbit text
+  select(-hobbit_text)
+
+
+
+
+#Get total word count for each word by chapter
+hobbit_wordcount <- hobbit_words %>% 
+  count(chapter, word)
+
+#The, and, etc are stop words
+```
+
+
+# Remove stop words
+
+We can remove stop words
+
+```{r}
+#Tidyverse considers these as stop words, 1149 stop words
+head(stop_words)
+
+
+#Create one without stop words
+hobbit_words_clean <- hobbit_words %>% 
+  
+  #Start with hobbit_words, remove anything in df that i want to join
+  anti_join(stop_words, by = 'word')
+
+```
+
+
+Then let's try counting them again
+
+```{r}
+nonstop_counts <- hobbit_words_clean %>% 
+  count(chapter, word)
+```
+
+
+## Find the top 5 words from each chapter
+
+```{r}
+#Top 5 words for each chapter
+top_5_words <- nonstop_counts %>% 
+  group_by(chapter) %>% 
+  arrange(-n) %>% 
+  slice(1:5) %>%
+  ungroup()
+ 
+#Make some graphs: 
+ggplot(data = top_5_words, aes(x = n, y = word)) +
+  geom_col(fill = "blue") +
+  
+  #Scales = free means we see relative amount of each chapter
+  #Each scale associated with each chapter
+  facet_wrap(~chapter, scales = "free")
+```
+
+## Word cloud for Chapter 1
+
+Built into `ggwordcloud` package
+
+```{r}
+ch1_top100 <- nonstop_counts %>% 
+  filter(chapter == 1) %>% 
+  
+  #Arrange decending orders
+  arrange(-n) %>% 
+  
+  #Just keep top 100
+  slice(1:100)
+
+
+#Create word cloud plot
+ch1_cloud <- ggplot(data = ch1_top100, 
+                    aes(label = word)) +
+  
+  #Define word cloud
+  #Color and size changes based on n
+  geom_text_wordcloud(aes(color = n, size = n), 
+                      
+                      #Change cloud based on shape
+                      shape = "diamond") +
+  
+  #Scale sizes of words
+  scale_size_area(max_size = 6) +
+  
+  #Make scale for color
+  scale_color_gradientn(colors = c("darkgreen","blue","purple")) +
+  
+  #Change theme
+  theme_minimal()
+ 
+
+
+#Plot it
+ch1_cloud
+```
+
+# Sentiment Analysis
+
+Each word associated with emotional weight, positive or negative association.
+
+The three general-purpose lexicons are
+
+  -  AFINN from Finn Årup Nielsen, (positive and negative, weighted by strength of positive or negative association)
+  -  bing from Bing Liu and collaborators, and (positive or negative, or 0)
+  -  nrc from Saif Mohammad and Peter Turney (word emotion association lexicon, one of 8 emotions that the word is associated with)
+
+All three of these lexicons are based on unigrams, i.e., single words. These lexicons contain many English words and the words are assigned
+
+
+
+"afinn": Words ranked from -5 (very negative) to +5 (very positive)
+
+
+```{r}
+#Get sentiment data from tidyverse package
+#Tibble of ~2500 words
+#get_sentiments(lexicon = "afinn")
+ 
+#Let's look at the pretty positive words:
+afinn_pos <- get_sentiments("afinn") %>% 
+  
+  #Looks at 3,4,5 values
+  filter(value %in% c(3,4,5))
+```
+
+
+For comparison, check out the bing lexicon: 
+
+```{r}
+#get_sentiments(lexicon = "bing")
+```
+
+
+Now nrc:
+```{r}
+#get_sentiments(lexicon = "nrc")
+```
+
+
+
+## Sentiment analysis with afinn: 
+
+First, bind words in `hobbit_nonstop_words` to `afinn` lexicon:
+```{r}
+hobbit_afinn <- hobbit_words_clean %>% 
+  
+  #Keep instance of first df that match 2nd df
+  #Keep rows that match between the two
+  inner_join(get_sentiments("afinn"), by = 'word')
+```
+
+
+
+Let's find some counts (by sentiment ranking):
+
+
+```{r}
+#Howmany times a value shows up for each chapter
+afinn_counts <- hobbit_afinn %>% 
+  count(chapter, value)
+ 
+#Plot them
+ggplot(data = afinn_counts, aes(x = value, y = n)) +
+  geom_col() +
+  facet_wrap(~chapter)
+
+
+
+#Find the mean afinn score by chapter: 
+afinn_means <- hobbit_afinn %>% 
+  group_by(chapter) %>% 
+  summarize(mean_afinn = mean(value))
+ 
+
+#Plot it
+ggplot(data = afinn_means, 
+       aes(x = fct_rev(factor(chapter)),
+           y = mean_afinn)) +
+  
+  #Chapter 1 on top, so force as factor to be 1-20
+           # y = fct_rev(as.factor(chapter)))) +
+  geom_col() +
+  
+  coord_flip()
+```
+
+## Now with NRC lexicon
+
+Recall, this assigns words to sentiment bins. Let's bind our hobbit data to the NRC lexicon: 
+
+```{r}
+hobbit_nrc <- hobbit_words_clean %>% 
+  inner_join(get_sentiments("nrc"))
+```
+
+
+Let's find the count of words by chapter and sentiment bin: 
+
+```{r}
+
+#count chapter and sentiment
+hobbit_nrc_counts <- hobbit_nrc %>% 
+  count(chapter, sentiment)
+ 
+
+#Plot it
+
+#aes(x = sentiment, y = n)
+ggplot(data = hobbit_nrc_counts, aes(x = chapter, y = n)) +
+  geom_col() +
+  #facet_wrap(~chapter) +
+  
+  facet_wrap(~ sentiment)
+  coord_flip()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
